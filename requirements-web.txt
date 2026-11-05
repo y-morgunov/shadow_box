@@ -1,0 +1,2 @@
+# The web server uses Python's standard library; no Qt or Node runtime required.
+-r requirements.txt

@@ -1,0 +1,14 @@
+*
+!requirements.txt
+!requirements-web.txt
+!radial_shadow.py
+!shadow_cube.py
+!printing.py
+!lighting.py
+!web/
+!web/**
+web/**/__pycache__/
+
+!examples/
+!examples/astronaut/
+!examples/astronaut/input.png

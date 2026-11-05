@@ -1,0 +1,311 @@
+{
+  "mode": "radial side walls",
+  "settings": {
+    "image": "examples/astronaut/input.png",
+    "demo": false,
+    "out": "output/astronaut",
+    "size": 100,
+    "height": 70,
+    "span": 600,
+    "box_x": 0,
+    "box_y": 14.0,
+    "thickness": 2,
+    "bridge": 1.4,
+    "source_diameter": 2,
+    "resolution": 180,
+    "smoothing": 0.8,
+    "threshold": 128,
+    "invert": false,
+    "preview_pixels": 300,
+    "light_model": "led",
+    "beam_angle": 120,
+    "flux": 100,
+    "ambient": 1,
+    "white_lux": 100,
+    "nozzle": 0.4,
+    "min_feature": 1.2500000000000002
+  },
+  "bridges_per_side": [
+    9,
+    7,
+    5,
+    5
+  ],
+  "watertight": true,
+  "components": 1,
+  "volume_mm3": 68353.82204025738,
+  "outside_box_binary_agreement": 0.92072,
+  "coordinates": "wall z=0, emitter (0,0,height), observer on +Z, image up +Y",
+  "holder": "6 mm bore; emitter must extend 15 mm above post; adapt to actual LED",
+  "limitations": [
+    "box footprint occupies selected image area",
+    "automatic bridges and 5 mm base rail alter image",
+    "finite preview samples side walls, omits holder and room lighting",
+    "one-piece side walls may require printing supports",
+    "physical assembly and heat not tested",
+    "Lighting assumes cos^n emission toward wall, no measured LED photometry, reflections, holder or heatsink shadows"
+  ],
+  "printing": {
+    "printer": "Creality K1",
+    "nozzle_mm": 0.4,
+    "build_volume_mm": [
+      220,
+      220,
+      250
+    ],
+    "usable_with_margin_mm": [
+      210,
+      210,
+      240
+    ],
+    "layer_height_mm": 0.2,
+    "profile_feature_mm": 1.2500000000000002,
+    "parts": [
+      {
+        "name": "base",
+        "file": "base.stl",
+        "size_mm": [
+          100.0,
+          100.0,
+          3.0
+        ],
+        "fits_k1_with_margin": true,
+        "volume_mm3": 29631.95025384944,
+        "possible_support_area_mm2": 188.97921530361054,
+        "print_to_assembly": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            -50.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            -50.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      {
+        "name": "post",
+        "file": "post.stl",
+        "size_mm": [
+          10.0,
+          10.0,
+          52.0
+        ],
+        "fits_k1_with_margin": true,
+        "volume_mm3": 2606.3469882292397,
+        "possible_support_area_mm2": 0.0,
+        "print_to_assembly": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            -5.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            -5.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            3.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      {
+        "name": "wall-1",
+        "file": "wall-1.stl",
+        "size_mm": [
+          100.0,
+          58.24998092651367,
+          2.0
+        ],
+        "fits_k1_with_margin": true,
+        "volume_mm3": 8867.14488269939,
+        "possible_support_area_mm2": 9.045446560075789,
+        "print_to_assembly": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            -50.0
+          ],
+          [
+            -0.0,
+            -0.0,
+            -1.0,
+            50.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            3.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      {
+        "name": "wall-2",
+        "file": "wall-2.stl",
+        "size_mm": [
+          100.0,
+          55.69485092163086,
+          2.0
+        ],
+        "fits_k1_with_margin": true,
+        "volume_mm3": 9382.683646151641,
+        "possible_support_area_mm2": 0.14833421273217065,
+        "print_to_assembly": [
+          [
+            6.123233995736766e-17,
+            0.0,
+            1.0,
+            -50.0
+          ],
+          [
+            1.0,
+            0.0,
+            -6.123233995736766e-17,
+            -50.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            3.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      {
+        "name": "wall-3",
+        "file": "wall-3.stl",
+        "size_mm": [
+          100.0,
+          51.54258728027344,
+          2.0
+        ],
+        "fits_k1_with_margin": true,
+        "volume_mm3": 8551.292615079472,
+        "possible_support_area_mm2": 19.746128066387687,
+        "print_to_assembly": [
+          [
+            -1.0,
+            -0.0,
+            1.2246467991473532e-16,
+            50.0
+          ],
+          [
+            1.2246467991473532e-16,
+            0.0,
+            1.0,
+            -50.000000000000014
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            3.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      {
+        "name": "wall-4",
+        "file": "wall-4.stl",
+        "size_mm": [
+          100.0,
+          55.770633697509766,
+          2.0
+        ],
+        "fits_k1_with_margin": true,
+        "volume_mm3": 9314.403645286924,
+        "possible_support_area_mm2": 0.6220673600962026,
+        "print_to_assembly": [
+          [
+            -1.8369701987210297e-16,
+            -0.0,
+            -1.0,
+            50.000000000000014
+          ],
+          [
+            -1.0,
+            -0.0,
+            1.8369701987210297e-16,
+            50.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            3.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      }
+    ],
+    "warnings": [
+      "Сборка на клей: стыки без защёлок и натяга.",
+      "В слайсере включить автоматические поддержки; проверить слои перед печатью.",
+      "Реальная печать, прочность и нагрев не проверены."
+    ],
+    "all_parts_fit": true
+  },
+  "lighting": {
+    "axis_lux": 6496.120126199813,
+    "edge_lux": 6.719347213212703,
+    "corner_lux": 2.6554532217168094,
+    "corner_axis_ratio": 0.0004087752643315467,
+    "corner_angle_deg": 81.82536825541168,
+    "warnings": [
+      "Углы получают менее 5% осевой освещённости; поле сильно неравномерное.",
+      "Слабое освещение углов: затемните комнату или увеличьте расстояние источника от стены."
+    ]
+  }
+}
