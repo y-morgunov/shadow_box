@@ -29,13 +29,32 @@ class SettingsTest(unittest.TestCase):
     def test_invalid_controls(self):
         from gui_settings import validated_controls
         for key, value in [('flux', float('nan')), ('flux', float('inf')),
-                           ('flux', True), ('height', 401), ('resolution', 80.5),
-                           ('box_x', -41), ('smoothing', '0.8')]:
+                           ('flux', True), ('height', 2001), ('resolution', 80.5),
+                           ('box_x', -50), ('smoothing', '0.8')]:
             with self.subTest(key=key, value=value):
                 data = self.snapshot()
                 data['controls'][key] = value
                 with self.assertRaises(ValueError):
                     validated_controls(data)
+
+    def test_expanded_limits_and_supports(self):
+        from gui_settings import validated_controls, generator_arguments
+        from web.server import validate
+        data = self.snapshot()
+        data['controls'].update(size=500, height=1000, span=20000, thickness=.5,
+                                resolution=1200, smoothing=0, min_feature=0,
+                                bridge=.1, source_diameter=20, box_x=45)
+        data['supports'] = False
+        self.assertEqual(validated_controls(data)['resolution'], 1200)
+        self.assertFalse(validate(data)['supports'])
+        args = generator_arguments('radial_shadow.py', 'output', data)
+        self.assertIn('--no-supports', args)
+        data['supports'] = 'false'
+        with self.assertRaises(ValueError): validated_controls(data)
+        with self.assertRaises(ValueError): validate(data)
+        del data['supports']
+        self.assertTrue(validate(data)['supports'])
+        self.assertNotIn('--no-supports', generator_arguments('radial_shadow.py', 'output', data))
 
     def test_integer_values_from_json(self):
         from gui_settings import generator_arguments
@@ -92,7 +111,7 @@ class GuiTest(unittest.TestCase):
         app = self.app
         window = Window(self.store)
         try:
-            self.assertEqual(window.controls['smoothing'].value(),.8)
+            self.assertEqual(window.controls['smoothing'].value(),.15)
             window.controls['height'].setValue(120)
             window.controls['span'].setValue(1000)
             window.controls['flux'].setValue(240)
@@ -107,7 +126,7 @@ class GuiTest(unittest.TestCase):
             self.assertEqual(window.controls['resolution'].value(),300)
             self.assertEqual(window.quality.currentIndex(),1)
             self.assertEqual(window.controls['height'].value(),120)
-            self.assertEqual(window.controls['smoothing'].value(),.8)
+            self.assertEqual(window.controls['smoothing'].value(),.15)
             expected = window.settings_snapshot()
             exported = Path(self.temp.name)/'preset.json'
             with patch.object(W.QFileDialog,'getSaveFileName',return_value=(str(exported),'JSON')):

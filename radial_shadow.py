@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Four sculpted side walls casting an image around a central box. Millimetres."""
 import argparse
+from functools import partial
 import io
 import json
 import math
@@ -14,6 +15,7 @@ from shapely.ops import unary_union, nearest_points
 from scipy.ndimage import gaussian_filter1d
 import trimesh
 import manifold3d
+from parameter_specs import CONTROL_SPECS, INTEGER_CONTROLS, validate_geometry
 from printing import export_kit, miter_wall
 from lighting import illuminance, preview as light_preview, diagnostics
 from shadow_cube import load_image, demo, polygons, solid_box, union, difference
@@ -48,7 +50,7 @@ def smooth_profile(material, amount):
     return unary_union(smoothed).simplify(.005,preserve_topology=True)
 
 
-def profiles(image, size, height, span, resolution, bridge, rail, min_feature=0, smoothing=0, box_x=0, box_y=0):
+def profiles(image, size, height, span, resolution, bridge, rail, min_feature=0, smoothing=0, box_x=0, box_y=0, supports=True):
     a = size/2
     top = height*(1-size/(span*(1+2*max(abs(box_x),abs(box_y))/100.0)))
     du, dz = size/resolution, (top-1)/resolution
@@ -76,15 +78,17 @@ def profiles(image, size, height, span, resolution, bridge, rail, min_feature=0,
             material = smooth_profile(material, smoothing).intersection(box(-a,1,a,top))
             material = unary_union([material,box(-a,1,a,rail)])
         else:
-            material = material.buffer(0.08).buffer(-0.08).simplify(0.06, preserve_topology=True)
+            # Resolve point contacts for STL triangulation at a 5 µm scale;
+            # the previous 0.08 mm closing and 0.06 mm simplification lost detail.
+            material = material.buffer(.005).buffer(-.005).simplify(.001, preserve_topology=True)
         if min_feature > 0:
-            # Opening removes sub-nozzle slivers/necks before reconnecting islands.
+            # Opening removes features narrower than the requested profile width.
             radius = min_feature/2
             material = material.buffer(-radius).buffer(radius)
             material = unary_union([material,box(-a,1,a,rail)])
             bridge = max(bridge,min_feature)
         added = 0
-        while len(polygons(material)) > 1:
+        while supports and len(polygons(material)) > 1:
             parts = polygons(material)
             anchor = max(parts, key=lambda p: p.intersection(box(-a, 1, a, rail)).area)
             target = min((p for p in parts if p is not anchor), key=anchor.distance)
@@ -126,16 +130,17 @@ def side_mesh(profile, side, size, height, thickness):
     return mesh
 
 
-def export_printable(mesh, path):
-    """Validate the STL round trip; simplify micrometre-scale edges only if needed."""
-    if not mesh.is_volume or len(mesh.split()) != 1:
+def export_printable(mesh, path, require_connected=True):
+    """Validate STL topology, retaining every fragment when bridges are disabled."""
+    if not mesh.is_volume or (require_connected and len(mesh.split()) != 1):
         raise ValueError('Исходная деталь не образует единый замкнутый объём')
+    components = len(mesh.split())
     candidate = mesh
     for tolerance in (0, .0001, .001):
         if tolerance:
             solid = manifold3d.Manifold(manifold3d.Mesh64(
-                np.asarray(mesh.vertices,dtype=np.float64),
-                np.asarray(mesh.faces,dtype=np.uint64))).simplify(tolerance)
+                np.array(mesh.vertices,dtype=np.float64,order='C',copy=True),
+                np.array(mesh.faces,dtype=np.uint64,order='C',copy=True))).simplify(tolerance)
             if solid.status() != manifold3d.Error.NoError: continue
             data = solid.to_mesh64()
             candidate = trimesh.Trimesh(vertices=data.vert_properties[:,:3],faces=data.tri_verts,process=False)
@@ -143,10 +148,10 @@ def export_printable(mesh, path):
         printable.update_faces(printable.nondegenerate_faces())
         printable.update_faces(printable.unique_faces())
         printable.remove_unreferenced_vertices()
-        if not printable.is_volume or len(printable.split()) != 1: continue
+        if not printable.is_volume or len(printable.split()) != components: continue
         payload = printable.export(file_type='stl')
         check = trimesh.load_mesh(io.BytesIO(payload), file_type='stl')
-        if not check.is_volume or len(check.split()) != 1: continue
+        if not check.is_volume or len(check.split()) != components: continue
         Path(path).write_bytes(payload)
         return check
     raise ValueError('После преобразования в STL модель не образует единый замкнутый объём')
@@ -187,48 +192,27 @@ def main():
     parser.add_argument('image', type=Path, nargs='?')
     parser.add_argument('--demo', action='store_true')
     parser.add_argument('--out', type=Path, default=Path('output/radial'))
-    parser.add_argument('--size', type=float, default=100)
-    parser.add_argument('--height', type=float, default=70, help='Emitter distance from wall')
-    parser.add_argument('--span', type=float, default=600, help='Image width on wall')
-    parser.add_argument('--box-x', type=float, default=0, help='Box center offset in image percent; positive right')
-    parser.add_argument('--box-y', type=float, default=0, help='Box center offset in image percent; positive down')
-    parser.add_argument('--thickness', type=float, default=2)
-    parser.add_argument('--bridge', type=float, default=1.4)
-    parser.add_argument('--source-diameter', type=float, default=2)
-    parser.add_argument('--resolution', type=int, default=180)
-    parser.add_argument('--smoothing', type=float, default=.8,
-                        help='Contour smoothing in profile mm; 0 disables, default 0.8')
-    parser.add_argument('--threshold', type=int, default=128)
+    for key, label, low, high, default, step in CONTROL_SPECS:
+        parser.add_argument('--'+key.replace('_', '-'),
+                            type=int if key in INTEGER_CONTROLS else float,
+                            default=default, help=f'{label}: {low} … {high}'.replace('%', '%%'))
+    parser.add_argument('--no-supports', dest='supports', action='store_false',
+                        help='Do not connect detached image islands with bridges')
     parser.add_argument('--invert', action='store_true')
     parser.add_argument('--preview-pixels', type=int, choices=(300, 600), default=600)
     parser.add_argument('--light-model', choices=('led','isotropic'), default='led')
-    parser.add_argument('--beam-angle', type=float, default=120, help='Full half-intensity angle, degrees')
-    parser.add_argument('--flux', type=float, default=100, help='Total luminous flux, lumens')
-    parser.add_argument('--ambient', type=float, default=1, help='Uniform ambient illuminance, lux')
-    parser.add_argument('--white-lux', type=float, default=100, help='Fixed preview white level, lux')
     parser.add_argument('--nozzle', type=float, default=.4)
-    parser.add_argument('--min-feature', type=float, default=1.2, help='Minimum profile feature before ray taper, mm')
     args = parser.parse_args()
-    if not (math.isfinite(args.smoothing) and 0 <= args.smoothing <= 2):
-        parser.error('Smoothing must be between 0 and 2 mm')
-    if not (.2 <= args.nozzle <= .8 and math.isfinite(args.min_feature) and 0.8 <= args.min_feature <= 5):
-        parser.error('Invalid print settings')
-    if args.thickness < 3*args.nozzle:
-        parser.error('Wall thickness must be at least three nozzle diameters')
-    if not (all(math.isfinite(v) for v in (args.beam_angle,args.flux,args.ambient,args.white_lux))
-            and 10 <= args.beam_angle <= 170 and 1 <= args.flux <= 5000
-            and 0 <= args.ambient <= 1000 and 1 <= args.white_lux <= 10000):
-        parser.error('Invalid lighting parameters')
-    if not all(math.isfinite(v) for v in (args.size,args.height,args.span,args.thickness,args.bridge,args.source_diameter)):
-        parser.error('Dimensions must be finite')
-    if not (60 <= args.size <= 300 and 40 <= args.height <= 400 and args.size*2 <= args.span <= args.size*15 and 1 <= args.thickness <= 5 and 0.8 <= args.bridge <= 5 and 0 <= args.source_diameter <= 10 and 40 <= args.resolution <= 300 and 0 <= args.threshold <= 255):
-        parser.error('Invalid geometry or resolution')
-    if not all(math.isfinite(v) and abs(v) <= 40 for v in (args.box_x,args.box_y)):
-        parser.error('Box offsets must be between -40 and 40 percent')
-    if max(abs(args.box_x),abs(args.box_y))/100*args.span + args.size/2 > args.span/2:
-        parser.error('Box must fit inside the image; reduce offsets or box size')
-    args.min_feature = max(args.min_feature,3*args.nozzle/(1-2*args.thickness/args.size))
-    args.bridge = max(args.bridge,args.min_feature)
+    for key, label, low, high, default, step in CONTROL_SPECS:
+        value = getattr(args, key)
+        if not math.isfinite(value) or not low <= value <= high:
+            parser.error(f'{key}: expected {low} … {high}')
+    if not math.isfinite(args.nozzle) or not .1 <= args.nozzle <= 2:
+        parser.error('Nozzle must be between 0.1 and 2 mm')
+    try:
+        validate_geometry(vars(args))
+    except ValueError as exc:
+        parser.error(str(exc))
     args.out.mkdir(parents=True, exist_ok=True)
     if args.demo:
         args.image = args.out/'input.png'
@@ -238,10 +222,10 @@ def main():
     (args.out/'request.json').write_text(json.dumps(
         {k: str(v.resolve()) if isinstance(v, Path) else v for k,v in vars(args).items()},
         ensure_ascii=False, indent=2)+'\n')
-    image = load_image(args.image, SimpleNamespace(resolution=600,invert=args.invert))
+    image = load_image(args.image, SimpleNamespace(resolution=min(4096,max(600,2*args.resolution)),invert=args.invert))
     image = image.point(lambda v: 0 if v < args.threshold else 255)
     print("STAGE:Расчёт четырёх стенок", flush=True)
-    ps, counts = profiles(image,args.size,args.height,args.span,args.resolution,args.bridge,5,args.min_feature,args.smoothing,args.box_x,args.box_y)
+    ps, counts = profiles(image,args.size,args.height,args.span,args.resolution,args.bridge,5,args.min_feature,args.smoothing,args.box_x,args.box_y,supports=args.supports)
     print("STAGE:Построение 3D-модели", flush=True)
     meshes = [side_mesh(p,i,args.size,args.height,args.thickness) for i,p in enumerate(ps)]
     meshes = [miter_wall(m,i,args.size,args.height) for i,m in enumerate(meshes)]
@@ -256,14 +240,15 @@ def main():
     # Feed the LED leads from underneath; the wire recess lies in the base's wall face.
     cable = solid_box([4,args.size/2+2,1.6],[0,-args.size/4,0.7])
     body = difference(body,[bore,cable])
-    if not body.is_volume or len(body.split()) != 1:
+    if not body.is_volume or (args.supports and len(body.split()) != 1):
         raise ValueError('Generated frame is not one connected solid')
-    body = export_printable(body, args.out/'radial-box.stl')
+    exporter = partial(export_printable, require_connected=args.supports)
+    body = exporter(body, args.out/'radial-box.stl')
     for i,(p,m) in enumerate(zip(ps,meshes)):
         m.export(args.out/f'side-{i+1}-assembled.stl')
         (args.out/f'side-{i+1}.wkt').write_text(p.wkt)
     print('STAGE:Подготовка деталей для Creality K1', flush=True)
-    print_report = export_kit(body,meshes,args,args.out,export_printable)
+    print_report = export_kit(body,meshes,args,args.out,exporter)
     print("STAGE:Расчёт превью тени", flush=True)
     pixels = args.preview_pixels
     ideal = projection(ps,args.size,args.height,args.thickness,args.span,pixels=pixels,mitered=True,box_x=args.box_x,box_y=args.box_y)
@@ -288,7 +273,7 @@ def main():
     coords = (np.arange(pixels)+.5)/pixels-.5
     x,y = np.meshgrid(coords-args.box_x/100,coords-args.box_y/100)
     outside = (abs(x)*args.span > args.size/2) | (abs(y)*args.span > args.size/2)
-    report = {'mode':'radial side walls','settings':{k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},'bridges_per_side':counts,'watertight':bool(body.is_watertight),'components':len(body.split()),'volume_mm3':float(body.volume),'outside_box_binary_agreement':float(np.mean(mask[outside]==target[outside])),'coordinates':'wall z=0, emitter (0,0,height), observer on +Z, image up +Y','holder':'6 mm bore; emitter must extend 15 mm above post; adapt to actual LED','limitations':['box footprint occupies selected image area','automatic bridges and 5 mm base rail alter image','finite preview samples side walls, omits holder and room lighting','one-piece side walls may require printing supports','physical assembly and heat not tested']}
+    report = {'mode':'radial side walls','settings':{k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},'bridges_per_side':counts,'watertight':bool(body.is_watertight),'components':len(body.split()),'volume_mm3':float(body.volume),'outside_box_binary_agreement':float(np.mean(mask[outside]==target[outside])),'coordinates':'wall z=0, emitter (0,0,height), observer on +Z, image up +Y','holder':'6 mm bore; emitter must extend 15 mm above post; adapt to actual LED','limitations':['box footprint occupies selected image area','5 mm base rail and optional bridges alter image','finite preview samples side walls, omits holder and room lighting','one-piece side walls may require printing supports','physical assembly and heat not tested']}
     report['printing'] = print_report
     report['lighting'] = light_report
     report['limitations'].append('Lighting assumes cos^n emission toward wall, no measured LED photometry, reflections, holder or heatsink shadows')

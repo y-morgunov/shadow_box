@@ -68,6 +68,44 @@ class RadialTest(unittest.TestCase):
         for p in ps:
             self.assertEqual(p.geom_type,'Polygon')
 
+    def test_bridges_can_be_disabled_and_fragments_exported(self):
+        image = Image.new('L', (200, 200), 255)
+        ImageDraw.Draw(image).ellipse((80, 10, 120, 35), fill=0)
+        ps, counts = profiles(image, 100, 70, 600, 100, 1.4, 5, supports=False)
+        self.assertEqual(counts, [0, 0, 0, 0])
+        detached = next(p for p in ps if p.geom_type == 'MultiPolygon')
+        mesh = side_mesh(detached, 0, 100, 70, 2)
+        components = len(mesh.split())
+        self.assertGreater(components, 1)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'fragments.stl'
+            with self.assertRaises(ValueError):
+                export_printable(mesh, path)
+            checked = export_printable(mesh, path, require_connected=False)
+            self.assertTrue(checked.is_volume)
+            self.assertEqual(len(checked.split()), components)
+
+    def test_astronaut_retains_sky_details(self):
+        from shadow_cube import load_image
+        from types import SimpleNamespace
+        from parameter_specs import CONTROL_SPECS
+        defaults = {s[0]: s[4] for s in CONTROL_SPECS}
+        image_path = Path(__file__).parent/'examples/astronaut/input.png'
+        scores = []
+        for resolution, smoothing, feature, pixels in [(180, .8, 1.25, 600),
+                (defaults['resolution'], defaults['smoothing'], defaults['min_feature'], 720)]:
+            image = load_image(image_path, SimpleNamespace(resolution=pixels, invert=False))
+            image = image.point(lambda v: 0 if v < 128 else 255)
+            ps, _ = profiles(image, 100, 70, 600, resolution, 1.4, 5,
+                             feature, smoothing, box_y=14)
+            actual = np.asarray(projection(ps, 100, 70, 2, 600,
+                                pixels=600, mitered=True, box_y=14)) < 128
+            target = np.asarray(image.resize((600, 600), Image.Resampling.NEAREST)) < 128
+            # Sky above the astronaut includes stars, the moon and planet rings.
+            scores.append(np.mean(actual[:200] == target[:200]))
+        self.assertGreater(scores[1], .93)
+        self.assertGreater(scores[1] - scores[0], .03)
+
     def test_detailed_profiles_form_volumes(self):
         # Seed 0, side 0 used to produce an open Earcut extrusion despite a
         # valid Shapely polygon. Check all sides and their assembled STL.

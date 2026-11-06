@@ -19,19 +19,12 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 from PIL import Image, ImageOps
+from parameter_specs import CONTROL_SPECS, validate_geometry, validate_supports
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).parent / 'static'
-# key: label, minimum, maximum, default, step
-SPECS = {
- 'size': ('Основание, мм',60,300,100,1), 'height': ('Источник над стеной, мм',40,400,70,1),
- 'span': ('Картинка на стене, мм',120,4500,600,10), 'thickness': ('Толщина стенок, мм',1.2,5,2,.1),
- 'box_x': ('Центр короба X, %',-40,40,0,1), 'box_y': ('Центр короба Y, %',-40,40,0,1),
- 'bridge': ('Перемычки, мм',.8,5,1.4,.1), 'source_diameter': ('Размер свечения, мм',0,10,2,.1),
- 'beam_angle': ('Угол LED (½ силы), °',10,170,120,5), 'flux': ('Световой поток, лм',1,5000,100,10),
- 'ambient': ('Свет в комнате, лк',0,1000,1,1), 'white_lux': ('Белый в превью, лк',1,10000,100,10),
- 'min_feature': ('Мин. элемент, мм',.8,5,1.2,.1), 'smoothing': ('Сглаживание краёв, мм',0,2,.8,.1),
- 'threshold': ('Порог чёрного',0,255,128,1), 'resolution': ('Детализация стенок',40,300,180,10)}
+
+SPECS = {spec[0]: spec[1:] for spec in CONTROL_SPECS}
 ARTIFACTS = {name: name for name in ['radial-box.stl','print-k1.zip','projection-point.png','projection-finite.png','projection-lighting.png','preview.png','input.png']}
 ARTIFACTS.update({f'{name}.stl': f'print-k1/{name}.stl' for name in ['base','post','wall-1','wall-2','wall-3','wall-4']})
 
@@ -48,13 +41,11 @@ def validate(data):
             if value != int(value): raise ValueError(f'Требуется целое число: {key}')
             value = int(value)
         result[key] = value
-    if not 2*result['size'] <= result['span'] <= 15*result['size']:
-        raise ValueError('Размер картинки должен быть от 2 до 15 размеров основания')
-    if max(abs(result['box_x']),abs(result['box_y']))/100*result['span']+result['size']/2 > result['span']/2:
-        raise ValueError('Короб выходит за границы картинки')
+    validate_geometry(result)
+    supports = validate_supports(data)
     if data.get('light_model') not in ('led','isotropic') or type(data.get('invert')) is not bool or data.get('preview_pixels') not in (300,600):
         raise ValueError('Неверные параметры освещения или превью')
-    return dict(version=1,controls=result,light_model=data['light_model'],invert=data['invert'],preview_pixels=int(data['preview_pixels']))
+    return dict(version=1,supports=supports,controls=result,light_model=data['light_model'],invert=data['invert'],preview_pixels=int(data['preview_pixels']))
 
 
 class Service:
@@ -101,6 +92,7 @@ class Service:
         cmd += [str(directory/'input.png')] if has_image else ['--demo']
         for key,value in settings['controls'].items(): cmd += ['--'+key.replace('_','-'),str(value)]
         cmd += ['--light-model',settings['light_model'],'--preview-pixels',str(settings['preview_pixels']),'--nozzle','0.4']
+        if not settings['supports']: cmd.append('--no-supports')
         if settings['invert']: cmd.append('--invert')
         timer = None
         process = None

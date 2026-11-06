@@ -11,6 +11,7 @@ import trimesh
 from PySide6 import QtCore as C, QtGui as G, QtWidgets as W
 import pyqtgraph.opengl as gl
 
+from parameter_specs import validate_geometry
 from gui_settings import CONTROL_SPECS, INTEGER_CONTROLS, validated_controls, generator_arguments
 
 ROOT = Path(__file__).resolve().parent
@@ -82,7 +83,7 @@ class Window(W.QMainWindow):
         demo = W.QPushButton('Пример с астронавтом'); demo.clicked.connect(self.demo)
         left.addWidget(choose); left.addWidget(demo); left.addWidget(self.file_label)
         presets = W.QHBoxLayout()
-        for label, resolution, pixels in [('Превью',80,300),('Для печати',300,600)]:
+        for label, resolution, pixels in [('Превью',80,300),('Для печати',600,600)]:
             button = W.QPushButton(label)
             button.setToolTip(f'Детализация стенок {resolution}, превью {pixels} px. Остальные параметры сохраняются.')
             button.clicked.connect(lambda checked=False,r=resolution,p=pixels: self.apply_quality_preset(r,p))
@@ -95,7 +96,7 @@ class Window(W.QMainWindow):
         for key,label,low,high,value,step in CONTROL_SPECS:
             spin = W.QDoubleSpinBox() if key not in INTEGER_CONTROLS else W.QSpinBox()
             spin.setRange(low,high); spin.setSingleStep(step); spin.setValue(value)
-            if isinstance(spin,W.QDoubleSpinBox): spin.setDecimals(1)
+            if isinstance(spin,W.QDoubleSpinBox): spin.setDecimals(2)
             spin.setKeyboardTracking(False)
             spin.valueChanged.connect(self.mark_dirty)
             self.controls[key] = spin; form.addRow(label,spin)
@@ -103,7 +104,7 @@ class Window(W.QMainWindow):
             self.controls[key].setToolTip('Положение короба на изображении: 0 — центр. X: плюс вправо; Y: плюс вниз. Проценты размера картинки. LED остаётся в центре короба.')
         self.controls['smoothing'].setToolTip(
             'Сглаживание геометрии STL в миллиметрах стенки. 0 — выключено. '
-            'По умолчанию 0,8 мм; большие значения удаляют мелкие детали.')
+            'По умолчанию 0,15 мм; большие значения удаляют мелкие детали.')
         left.addLayout(form)
         self.light_model = W.QComboBox()
         self.light_model.addItem('LED направлен к стене', 'led')
@@ -114,6 +115,11 @@ class Window(W.QMainWindow):
         preset.clicked.connect(self.meter_preset); left.addWidget(preset)
         self.invert = W.QCheckBox('Инвертировать чёрное и белое'); self.invert.toggled.connect(self.mark_dirty)
         left.addWidget(self.invert)
+        self.supports = W.QCheckBox('Соединительные перемычки')
+        self.supports.setChecked(True)
+        self.supports.setToolTip('Соединяют отдельные фрагменты рисунка. Если отключить, фрагменты потребуется закрепить при сборке.')
+        self.supports.toggled.connect(self.mark_dirty)
+        left.addWidget(self.supports)
         self.quality = W.QComboBox(); self.quality.addItems(['Быстрое превью · 300 px','Точное превью · 600 px'])
         self.quality.currentIndexChanged.connect(self.mark_dirty); left.addWidget(self.quality)
         hint = W.QLabel('Чёрное создаёт тень. Положение бокса задаётся X и Y. Размер свечения — размер светящейся области LED.')
@@ -174,7 +180,7 @@ class Window(W.QMainWindow):
 
     def settings_snapshot(self):
         return dict(version=1,controls={k:s.value() for k,s in self.controls.items()},
-                    image=str(self.image_path),invert=self.invert.isChecked(),
+                    image=str(self.image_path),invert=self.invert.isChecked(),supports=self.supports.isChecked(),
                     light_model=self.light_model.currentData(),preview_pixels=300 if self.quality.currentIndex()==0 else 600)
 
     def persist_settings(self):
@@ -190,6 +196,7 @@ class Window(W.QMainWindow):
             for key,value in controls.items():
                 self.controls[key].setValue(value)
             self.invert.setChecked(data['invert'])
+            self.supports.setChecked(data.get('supports', True))
             self.light_model.setCurrentIndex(self.light_model.findData(data['light_model']))
             self.quality.setCurrentIndex(0 if data['preview_pixels']==300 else 1)
             path = Path(data['image'])
@@ -264,12 +271,10 @@ class Window(W.QMainWindow):
         if not active: self.progress.setValue(1)
 
     def generate(self):
-        size,span = self.controls['size'].value(),self.controls['span'].value()
-        if not size*2 <= span <= size*15:
-            W.QMessageBox.warning(self,'Проверьте размер',f'Для этого основания ширина картинки должна быть от {size*2:g} до {size*15:g} мм.'); return
-        offset = max(abs(self.controls[k].value()) for k in ('box_x','box_y'))
-        if offset/100*span+size/2 > span/2:
-            W.QMessageBox.warning(self,'Положение короба','Короб выходит за границы картинки. Уменьшите смещение или размер основания.'); return
+        try:
+            validate_geometry({k: s.value() for k, s in self.controls.items()})
+        except ValueError as exc:
+            W.QMessageBox.warning(self, 'Проверьте размеры', str(exc)); return
         if not self.image_path.is_file():
             W.QMessageBox.warning(self,'Нет картинки','Выберите существующий файл изображения.'); return
         self.pending = ROOT/'output/gui'/datetime.now().strftime('%Y%m%d-%H%M%S-%f')

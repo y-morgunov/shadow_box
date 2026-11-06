@@ -80,6 +80,28 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.request(f'/api/jobs/{other}/cancel',{})[0],200)
         self.assertEqual(self.wait(other)['status'],'canceled')
         self.assertEqual(self.request(f'/api/jobs/{ident}/radial-box.stl')[0],200)
+    def test_generation_without_bridges(self):
+        self.login()
+        image = Image.new('L', (200, 200), 255)
+        from PIL import ImageDraw
+        ImageDraw.Draw(image).ellipse((80, 10, 120, 35), fill=0)
+        buffer = io.BytesIO(); image.save(buffer, format='PNG')
+        settings = self.settings()
+        settings['supports'] = False
+        code, body, _ = self.request('/api/jobs', {'settings': settings,
+            'image': base64.b64encode(buffer.getvalue()).decode()})
+        self.assertEqual(code, 202)
+        ident = json.loads(body)['id']
+        job = self.wait(ident)
+        self.assertEqual(job['status'], 'done', job)
+        self.assertEqual(job['report']['bridges_per_side'], [0, 0, 0, 0])
+        self.assertGreater(job['report']['components'], 1)
+        self.assertTrue(job['report']['watertight'])
+        self.assertEqual(self.request(f'/api/jobs/{ident}/print-k1.zip')[0], 200)
+        report = json.loads((Path(self.temp.name)/ident/'report.json').read_text())
+        self.assertEqual(report['settings']['min_feature'], 0)
+        self.assertFalse(report['settings']['supports'])
+
     def test_timeout(self):
         self.service.timeout=.001;self.login()
         code,body,_=self.request('/api/jobs',{'settings':self.settings()});ident=json.loads(body)['id']
